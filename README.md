@@ -98,12 +98,38 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
   - `crates/worker` (`tootoo_worker`): one-shot CLI (placeholder)
 - Commands
   - API: `cargo run -p tootoo_api`
-  - Worker: `cargo run -p tootoo_worker -- --as-of-date YYYY-MM-DD`
+  - Worker (EOD): `cargo run -p tootoo_worker --release`
+  - Worker (backfill): `cargo run -p tootoo_worker --release -- --as-of-date YYYY-MM-DD`
+  - Worker (dry-run): `cargo run -p tootoo_worker -- --dry-run`
   - Check: `cargo check`
 - Environment (WIP)
   - `ANTHROPIC_API_KEY` (LLM)
   - `DATABASE_URL` (Postgres connection string; Supabase)
   - `SENTRY_DSN` (optional)
+  - Optional
+    - `ANTHROPIC_MODEL` (default: `claude-3-5-sonnet-latest`)
+    - `ANTHROPIC_MAX_TOKENS` (default: `2048`)
+    - `ANTHROPIC_BASE_URL` (default: `https://api.anthropic.com`)
+
+## API
+
+- `GET /healthz` -> `ok` (deterministic, does not call the LLM)
+- `GET /snapshots/latest` -> latest successful snapshot (snapshot_id/provider + snapshot payload)
+- `GET /snapshots/:as_of_date` -> successful snapshot for that date (YYYY-MM-DD)
+- `GET /items/:as_of_date/:ticker` -> one item from that day's successful snapshot
+
+## Runbook
+
+- Snapshot semantics
+  - Append-only: snapshots/items are inserted, never mutated.
+  - Uniqueness: at most one `status='success'` snapshot per `as_of_date`.
+  - Reproducibility: API reads are keyed by `as_of_date` and use stored snapshot records.
+- Idempotency
+  - Worker uses a Postgres advisory lock keyed by `as_of_date` to avoid concurrent runs.
+  - DB also enforces a unique index for successful snapshots per `as_of_date`.
+- Backfill
+  - `cargo run -p tootoo_worker --release -- --as-of-date YYYY-MM-DD`
+  - If a successful snapshot already exists for that date, the write will fail and the run will be recorded as an error snapshot.
 
 ## TODOs / Next Steps
 

@@ -11,5 +11,13 @@ tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+sentry.workspace = true
+sentry-anyhow.workspace = true
+sentry-tracing.workspace = true
 
 tootoo_core = { path = "../core" }

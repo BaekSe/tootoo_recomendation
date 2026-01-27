@@ -1,0 +1,37 @@
+name: eod-worker
+
+on:
+  schedule:
+    # KRX close ~15:30 KST => 07:30 UTC. Run at 07:45 UTC on weekdays.
+    - cron: "45 7 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUST_LOG: info
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run EOD worker (retry)
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            echo "attempt=$i"
+            cargo run -p tootoo_worker --release && exit 0
+            sleep 30
+          done
+          exit 1

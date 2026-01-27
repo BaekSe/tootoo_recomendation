@@ -1,5 +1,6 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecommendationSnapshot {
@@ -16,4 +17,11 @@ pub struct RecommendationItem {
     pub rationale: [String; 3],
     pub risk_notes: Option<String>,
     pub confidence: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Candidate {
+    pub ticker: String,
+    pub name: String,
+    pub features: BTreeMap<String, f64>,
 }
