@@ -110,7 +110,7 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
   - `WORKER_DATABASE_URL` (optional; overrides DB connection for worker only)
   - `SENTRY_DSN` (optional)
   - Optional
-    - `ANTHROPIC_MODEL` (default: `claude-3-5-sonnet-latest`)
+    - `ANTHROPIC_MODEL` (example: `claude-3-5-sonnet-20241022`)
     - `ANTHROPIC_MAX_TOKENS` (default: `2048`)
     - `ANTHROPIC_BASE_URL` (default: `https://api.anthropic.com`)
     - `ANTHROPIC_TIMEOUT_SECS` (default: `60`)
