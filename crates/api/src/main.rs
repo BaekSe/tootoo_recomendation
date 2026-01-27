@@ -207,6 +207,7 @@ async fn fetch_snapshot(
                  ORDER BY generated_at DESC \
                  LIMIT 1",
             )
+            .persistent(false)
             .bind(d)
             .fetch_optional(pool)
             .await?
@@ -219,6 +220,7 @@ async fn fetch_snapshot(
                  ORDER BY as_of_date DESC, generated_at DESC \
                  LIMIT 1",
             )
+            .persistent(false)
             .fetch_optional(pool)
             .await?
         }
@@ -258,6 +260,7 @@ async fn fetch_items(pool: &PgPool, snapshot_id: Uuid) -> anyhow::Result<Vec<Rec
          WHERE snapshot_id = $1 \
          ORDER BY rank ASC",
     )
+    .persistent(false)
     .bind(snapshot_id)
     .fetch_all(pool)
     .await?;
@@ -305,6 +308,7 @@ async fn fetch_item(
          WHERE snapshot_id = $1 AND ticker = $2 \
          LIMIT 1",
     )
+    .persistent(false)
     .bind(snapshot_id)
     .bind(ticker)
     .fetch_optional(pool)

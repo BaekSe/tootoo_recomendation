@@ -93,6 +93,7 @@ pub async fn build_candidate_universe_db(
                  ORDER BY trading_value DESC NULLS LAST, ticker ASC \
                  LIMIT $3",
             )
+            .persistent(false)
             .bind(as_of_date)
             .bind(min_tv)
             .bind(opts.size as i64)
@@ -107,6 +108,7 @@ pub async fn build_candidate_universe_db(
                  ORDER BY trading_value DESC NULLS LAST, ticker ASC \
                  LIMIT $2",
             )
+            .persistent(false)
             .bind(as_of_date)
             .bind(opts.size as i64)
             .fetch_all(pool)

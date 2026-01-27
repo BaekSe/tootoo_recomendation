@@ -62,10 +62,14 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let db_url = settings.require_database_url()?;
+    // Allow a worker-only override so we can bypass Supabase pooler if needed.
+    let db_url = match std::env::var("WORKER_DATABASE_URL") {
+        Ok(v) if !v.trim().is_empty() => v,
+        _ => settings.require_database_url()?.to_string(),
+    };
 
     let mut connect_options =
-        PgConnectOptions::from_str(db_url).context("parse DATABASE_URL failed")?;
+        PgConnectOptions::from_str(&db_url).context("parse DATABASE_URL failed")?;
     connect_options = connect_options.statement_cache_capacity(0);
 
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -252,6 +256,7 @@ async fn success_snapshot_exists(
     let exists: Option<(i32,)> = sqlx::query_as(
         "SELECT 1 FROM recommendation_snapshots WHERE status = 'success' AND as_of_date = $1 LIMIT 1",
     )
+    .persistent(false)
     .bind(as_of_date)
     .fetch_optional(pool)
     .await?;

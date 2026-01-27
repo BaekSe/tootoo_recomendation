@@ -107,6 +107,7 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
 - Environment (WIP)
   - `ANTHROPIC_API_KEY` (LLM)
   - `DATABASE_URL` (Postgres connection string; Supabase)
+  - `WORKER_DATABASE_URL` (optional; overrides DB connection for worker only)
   - `SENTRY_DSN` (optional)
   - Optional
     - `ANTHROPIC_MODEL` (default: `claude-3-5-sonnet-latest`)
