@@ -1,8 +1,9 @@
-use clap::Parser;
 use anyhow::Context;
+use clap::Parser;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod ingest;
 mod universe;
 
 #[derive(Debug, Parser)]
@@ -15,6 +16,14 @@ struct Args {
     /// Do everything except writing to the database.
     #[arg(long)]
     dry_run: bool,
+
+    /// Seed stock_features_daily with deterministic stub rows for the resolved as_of_date.
+    #[arg(long)]
+    ingest_features: bool,
+
+    /// Number of stub rows to insert when using --ingest-features.
+    #[arg(long)]
+    ingest_size: Option<usize>,
 }
 
 #[tokio::main]
@@ -48,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
 
     let db_url = settings.require_database_url()?;
 
-    let pool = sqlx::PgPoolOptions::new()
+    let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
         .connect(db_url)
         .await
@@ -56,7 +65,15 @@ async fn main() -> anyhow::Result<()> {
 
     tootoo_core::storage::migrate(&pool).await?;
 
-    let acquired = tootoo_core::storage::lock::try_acquire_as_of_date_lock(&pool, as_of_date).await?;
+    if args.ingest_features {
+        let size = args.ingest_size.unwrap_or(500);
+        let inserted = ingest::ingest_stub_stock_features(&pool, as_of_date, size).await?;
+        tracing::info!(%as_of_date, size, inserted, "seeded stock_features_daily (stub)");
+        return Ok(());
+    }
+
+    let acquired =
+        tootoo_core::storage::lock::try_acquire_as_of_date_lock(&pool, as_of_date).await?;
     if !acquired {
         tracing::warn!(%as_of_date, "as_of_date lock not acquired; another run in progress");
         return Ok(());
@@ -96,18 +113,22 @@ async fn main() -> anyhow::Result<()> {
                     tracing::info!(%as_of_date, %snapshot_id, "persisted recommendation snapshot");
                 }
                 Err(e) => {
-                    let generated_at = chrono::Utc::now();
-                    let _ = tootoo_core::storage::recommendations::persist_failure(
-                        &pool,
-                        as_of_date,
-                        generated_at,
-                        provider,
-                        &format!("persist_success failed: {:#}", e),
-                        None,
-                    )
-                    .await;
+                    if is_unique_violation(&e) {
+                        tracing::info!(%as_of_date, "snapshot already exists (unique constraint); treating as no-op");
+                    } else {
+                        let generated_at = chrono::Utc::now();
+                        let _ = tootoo_core::storage::recommendations::persist_failure(
+                            &pool,
+                            as_of_date,
+                            generated_at,
+                            provider,
+                            &format!("persist_success failed: {:#}", e),
+                            None,
+                        )
+                        .await;
 
-                    tracing::error!(%as_of_date, error = %e, "persist_success failed");
+                        tracing::error!(%as_of_date, error = %e, "persist_success failed");
+                    }
                 }
             }
         }
@@ -119,9 +140,9 @@ async fn main() -> anyhow::Result<()> {
                 raw_llm_response = diag.raw_response_json.clone();
                 if raw_llm_response.is_none() {
                     if let Some(raw) = diag.raw_output.as_deref() {
-                    raw_llm_response = serde_json::from_str(raw)
-                        .ok()
-                        .or_else(|| Some(serde_json::json!({"raw_text": raw}))); 
+                        raw_llm_response = serde_json::from_str(raw)
+                            .ok()
+                            .or_else(|| Some(serde_json::json!({"raw_text": raw})));
                     }
                 }
             }
@@ -144,6 +165,18 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn is_unique_violation(err: &anyhow::Error) -> bool {
+    let Some(sqlx_err) = err.downcast_ref::<sqlx::Error>() else {
+        return false;
+    };
+
+    let sqlx::Error::Database(db) = sqlx_err else {
+        return false;
+    };
+
+    db.code().as_deref() == Some("23505")
+}
+
 fn init_sentry(settings: &tootoo_core::config::Settings) -> Option<sentry::ClientInitGuard> {
     let dsn = settings.sentry_dsn.as_deref()?;
     Some(sentry::init((
@@ -155,9 +188,12 @@ fn init_sentry(settings: &tootoo_core::config::Settings) -> Option<sentry::Clien
     )))
 }
 
-async fn success_snapshot_exists(pool: &sqlx::PgPool, as_of_date: chrono::NaiveDate) -> anyhow::Result<bool> {
-    let exists: Option<(uuid::Uuid,)> = sqlx::query_as(
-        "SELECT id FROM recommendation_snapshots WHERE status = 'success' AND as_of_date = $1 LIMIT 1",
+async fn success_snapshot_exists(
+    pool: &sqlx::PgPool,
+    as_of_date: chrono::NaiveDate,
+) -> anyhow::Result<bool> {
+    let exists: Option<(i32,)> = sqlx::query_as(
+        "SELECT 1 FROM recommendation_snapshots WHERE status = 'success' AND as_of_date = $1 LIMIT 1",
     )
     .bind(as_of_date)
     .fetch_optional(pool)

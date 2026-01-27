@@ -101,6 +101,7 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
   - Worker (EOD): `cargo run -p tootoo_worker --release`
   - Worker (backfill): `cargo run -p tootoo_worker --release -- --as-of-date YYYY-MM-DD`
   - Worker (dry-run): `cargo run -p tootoo_worker -- --dry-run`
+  - Worker (seed features stub): `cargo run -p tootoo_worker -- --ingest-features --ingest-size 500`
   - Check: `cargo check`
 - Environment (WIP)
   - `ANTHROPIC_API_KEY` (LLM)
@@ -111,6 +112,12 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
     - `ANTHROPIC_MAX_TOKENS` (default: `2048`)
     - `ANTHROPIC_BASE_URL` (default: `https://api.anthropic.com`)
     - `ANTHROPIC_TIMEOUT_SECS` (default: `60`)
+    - Worker / Universe
+      - `UNIVERSE_SIZE` (default: `200`, must be 200..=500)
+      - `UNIVERSE_MIN_TRADING_VALUE` (optional)
+      - `TOOTOO_USE_STUB_UNIVERSE` (set to any value to bypass DB and use deterministic stub candidates)
+    - Market date
+      - `KR_MARKET_HOLIDAYS` (optional CSV list: `YYYY-MM-DD,YYYY-MM-DD`)
 
 ## API
 
@@ -130,7 +137,7 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
   - DB also enforces a unique index for successful snapshots per `as_of_date`.
 - Backfill
   - `cargo run -p tootoo_worker --release -- --as-of-date YYYY-MM-DD`
-  - If a successful snapshot already exists for that date, the write will fail and the run will be recorded as an error snapshot.
+  - If a successful snapshot already exists for that date, the worker exits (no-op) and does not call the LLM.
 
 ## TODOs / Next Steps
 
