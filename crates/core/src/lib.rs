@@ -1,6 +1,7 @@
 pub mod domain;
 pub mod llm;
 pub mod storage;
+pub mod time;
 
 pub mod config {
     use anyhow::Context;
