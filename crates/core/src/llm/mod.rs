@@ -1,5 +1,7 @@
 use crate::domain::recommendation::RecommendationSnapshot;
 
+pub mod anthropic;
+
 #[derive(Debug, Clone)]
 pub struct GenerateInput {
     pub as_of_date: chrono::NaiveDate,
