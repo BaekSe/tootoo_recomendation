@@ -6,11 +6,13 @@ use crate::llm::error::LlmDiagnosticsError;
 use anyhow::{anyhow, Context};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const DEFAULT_MODEL: &str = "claude-3-5-sonnet-latest";
 const DEFAULT_MAX_TOKENS: u32 = 2048;
+const DEFAULT_TIMEOUT_SECS: u64 = 60;
 
 #[derive(Debug, Clone)]
 pub struct AnthropicClient {
@@ -31,8 +33,18 @@ impl AnthropicClient {
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(DEFAULT_MAX_TOKENS);
 
+        let timeout_secs = std::env::var("ANTHROPIC_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_TIMEOUT_SECS);
+
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(timeout_secs))
+            .build()
+            .context("failed to build reqwest client")?;
+
         Ok(Self {
-            http: reqwest::Client::new(),
+            http,
             api_key,
             base_url,
             model,
@@ -40,7 +52,7 @@ impl AnthropicClient {
         })
     }
 
-    async fn create_message(&self, req: CreateMessageRequest) -> anyhow::Result<CreateMessageResponse> {
+    async fn create_message(&self, req: CreateMessageRequest) -> anyhow::Result<(serde_json::Value, CreateMessageResponse)> {
         let mut headers = HeaderMap::new();
         headers.insert("x-api-key", HeaderValue::from_str(&self.api_key)?);
         headers.insert("anthropic-version", HeaderValue::from_static(ANTHROPIC_VERSION));
@@ -58,11 +70,22 @@ impl AnthropicClient {
         let status = res.status();
         let text = res.text().await.context("failed to read Anthropic response body")?;
         if !status.is_success() {
-            return Err(anyhow!("Anthropic HTTP {}: {}", status, text));
+            let raw_response_json = serde_json::from_str::<serde_json::Value>(&text).ok();
+            return Err(LlmDiagnosticsError {
+                provider: Provider::Anthropic,
+                stage: "http",
+                detail: format!("status={status}"),
+                raw_output: Some(text),
+                raw_response_json,
+            }
+            .into());
         }
 
-        serde_json::from_str::<CreateMessageResponse>(&text)
-            .with_context(|| format!("failed to parse Anthropic response JSON: {text}"))
+        let raw_json = serde_json::from_str::<serde_json::Value>(&text)
+            .with_context(|| format!("failed to parse Anthropic response JSON: {text}"))?;
+        let parsed = serde_json::from_value::<CreateMessageResponse>(raw_json.clone())
+            .context("failed to decode Anthropic response into CreateMessageResponse")?;
+        Ok((raw_json, parsed))
     }
 
     fn system_prompt() -> String {
@@ -145,6 +168,16 @@ impl LlmClient for AnthropicClient {
     }
 
     async fn generate_recommendations(&self, input: GenerateInput) -> anyhow::Result<RecommendationSnapshot> {
+        let (snapshot, _raw) = self.generate_recommendations_with_raw(input).await?;
+        Ok(snapshot)
+    }
+}
+
+impl AnthropicClient {
+    pub async fn generate_recommendations_with_raw(
+        &self,
+        input: GenerateInput,
+    ) -> anyhow::Result<(RecommendationSnapshot, serde_json::Value)> {
         let req = CreateMessageRequest {
             model: self.model.clone(),
             max_tokens: self.max_tokens,
@@ -155,10 +188,10 @@ impl LlmClient for AnthropicClient {
             }],
         };
 
-        let res = self.create_message(req).await?;
+        let (raw_json, res) = self.create_message(req).await?;
         let text = Self::response_text(&res)?;
         match Self::parse_snapshot(&text, input.as_of_date) {
-            Ok(snapshot) => Ok(snapshot),
+            Ok(snapshot) => Ok((snapshot, raw_json)),
             Err(first_err) => {
                 let repair_req = CreateMessageRequest {
                     model: self.model.clone(),
@@ -170,15 +203,16 @@ impl LlmClient for AnthropicClient {
                     }],
                 };
 
-                let repair_res = self.create_message(repair_req).await?;
+                let (repair_raw_json, repair_res) = self.create_message(repair_req).await?;
                 let repair_text = Self::response_text(&repair_res)?;
                 match Self::parse_snapshot(&repair_text, input.as_of_date) {
-                    Ok(snapshot) => Ok(snapshot),
+                    Ok(snapshot) => Ok((snapshot, repair_raw_json)),
                     Err(second_err) => Err(LlmDiagnosticsError {
                         provider: Provider::Anthropic,
                         stage: "parse_after_repair",
                         detail: format!("first_error={first_err}; second_error={second_err}"),
                         raw_output: Some(repair_text),
+                        raw_response_json: Some(repair_raw_json),
                     }
                     .into()),
                 }

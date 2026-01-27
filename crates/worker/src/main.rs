@@ -1,7 +1,6 @@
 use clap::Parser;
 use anyhow::Context;
 use tracing_subscriber::EnvFilter;
-use tootoo_core::llm::LlmClient;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod universe;
@@ -9,7 +8,7 @@ mod universe;
 #[derive(Debug, Parser)]
 #[command(name = "tootoo_worker")]
 struct Args {
-    /// Market as-of date (YYYY-MM-DD). Defaults to today's KST date for now.
+    /// Market as-of date (YYYY-MM-DD). Defaults to resolved KR market date (KST, close cutoff).
     #[arg(long)]
     as_of_date: Option<String>,
 
@@ -33,16 +32,16 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let as_of_date = resolve_as_of_date(args.as_of_date.as_deref())?;
-
-    let candidates = universe::build_candidate_universe_stub(as_of_date, universe::UniverseOptions::default())?;
+    let as_of_date = tootoo_core::time::kr_market::resolve_as_of_date(
+        args.as_of_date.as_deref(),
+        chrono::Utc::now(),
+    )?;
 
     if args.dry_run {
         tracing::info!(
             %as_of_date,
             dry_run = true,
-            candidates_len = candidates.len(),
-            "worker placeholder: EOD run (dry-run)"
+            "worker: EOD run (dry-run)"
         );
         return Ok(());
     }
@@ -59,40 +58,71 @@ async fn main() -> anyhow::Result<()> {
 
     let acquired = tootoo_core::storage::lock::try_acquire_as_of_date_lock(&pool, as_of_date).await?;
     if !acquired {
-        tracing::warn!(%as_of_date, "as_of_date lock not acquired; another run in progress")
-;
+        tracing::warn!(%as_of_date, "as_of_date lock not acquired; another run in progress");
         return Ok(());
     }
+
+    if success_snapshot_exists(&pool, as_of_date).await? {
+        tracing::info!(%as_of_date, "successful snapshot already exists; exiting (no-op)");
+        let _ = tootoo_core::storage::lock::release_as_of_date_lock(&pool, as_of_date).await;
+        return Ok(());
+    }
+
+    let universe_opts = universe::UniverseOptions::from_env();
+    let use_stub = std::env::var("TOOTOO_USE_STUB_UNIVERSE").ok().is_some();
+    let candidates = if use_stub {
+        universe::build_candidate_universe_stub(as_of_date, universe_opts)?
+    } else {
+        universe::build_candidate_universe_db(&pool, as_of_date, universe_opts).await?
+    };
 
     let llm = tootoo_core::llm::anthropic::AnthropicClient::from_settings(&settings)?;
     let input = tootoo_core::llm::GenerateInput::try_new(as_of_date, candidates)?;
 
     let provider = "anthropic";
-    let llm_result = llm.generate_recommendations(input).await;
+    let llm_result = llm.generate_recommendations_with_raw(input).await;
 
     match llm_result {
-        Ok(snapshot) => {
-            let raw = serde_json::to_value(&snapshot).ok();
-            let snapshot_id = tootoo_core::storage::recommendations::persist_success(
+        Ok((snapshot, raw_json)) => {
+            match tootoo_core::storage::recommendations::persist_success(
                 &pool,
                 &snapshot,
                 provider,
-                raw,
+                Some(raw_json),
             )
-            .await?;
+            .await
+            {
+                Ok(snapshot_id) => {
+                    tracing::info!(%as_of_date, %snapshot_id, "persisted recommendation snapshot");
+                }
+                Err(e) => {
+                    let generated_at = chrono::Utc::now();
+                    let _ = tootoo_core::storage::recommendations::persist_failure(
+                        &pool,
+                        as_of_date,
+                        generated_at,
+                        provider,
+                        &format!("persist_success failed: {:#}", e),
+                        None,
+                    )
+                    .await;
 
-            tracing::info!(%as_of_date, %snapshot_id, "persisted recommendation snapshot")
-;
+                    tracing::error!(%as_of_date, error = %e, "persist_success failed");
+                }
+            }
         }
         Err(err) => {
             sentry_anyhow::capture_anyhow(&err);
             let generated_at = chrono::Utc::now();
             let mut raw_llm_response: Option<serde_json::Value> = None;
             if let Some(diag) = err.downcast_ref::<tootoo_core::llm::error::LlmDiagnosticsError>() {
-                if let Some(raw) = diag.raw_output.as_deref() {
+                raw_llm_response = diag.raw_response_json.clone();
+                if raw_llm_response.is_none() {
+                    if let Some(raw) = diag.raw_output.as_deref() {
                     raw_llm_response = serde_json::from_str(raw)
                         .ok()
                         .or_else(|| Some(serde_json::json!({"raw_text": raw}))); 
+                    }
                 }
             }
 
@@ -106,8 +136,7 @@ async fn main() -> anyhow::Result<()> {
             )
             .await?;
 
-            tracing::error!(%as_of_date, %snapshot_id, error = %err, "recommendation run failed")
-;
+            tracing::error!(%as_of_date, %snapshot_id, error = %err, "recommendation run failed");
         }
     }
 
@@ -126,13 +155,12 @@ fn init_sentry(settings: &tootoo_core::config::Settings) -> Option<sentry::Clien
     )))
 }
 
-fn resolve_as_of_date(as_of_date_arg: Option<&str>) -> anyhow::Result<chrono::NaiveDate> {
-    if let Some(s) = as_of_date_arg {
-        return Ok(chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")?);
-    }
-
-    // Default: KST date (UTC+9). This is a safe placeholder until KR market-date rules are
-    // implemented (weekends/holidays/close-time cutoffs).
-    let kst = chrono::FixedOffset::east_opt(9 * 3600).context("invalid KST offset")?;
-    Ok(chrono::Utc::now().with_timezone(&kst).date_naive())
+async fn success_snapshot_exists(pool: &sqlx::PgPool, as_of_date: chrono::NaiveDate) -> anyhow::Result<bool> {
+    let exists: Option<(uuid::Uuid,)> = sqlx::query_as(
+        "SELECT id FROM recommendation_snapshots WHERE status = 'success' AND as_of_date = $1 LIMIT 1",
+    )
+    .bind(as_of_date)
+    .fetch_optional(pool)
+    .await?;
+    Ok(exists.is_some())
 }

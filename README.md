@@ -110,6 +110,7 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
     - `ANTHROPIC_MODEL` (default: `claude-3-5-sonnet-latest`)
     - `ANTHROPIC_MAX_TOKENS` (default: `2048`)
     - `ANTHROPIC_BASE_URL` (default: `https://api.anthropic.com`)
+    - `ANTHROPIC_TIMEOUT_SECS` (default: `60`)
 
 ## API
 

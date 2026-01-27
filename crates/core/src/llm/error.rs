@@ -1,4 +1,5 @@
 use crate::llm::Provider;
+use serde_json::Value;
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -7,6 +8,7 @@ pub struct LlmDiagnosticsError {
     pub stage: &'static str,
     pub detail: String,
     pub raw_output: Option<String>,
+    pub raw_response_json: Option<Value>,
 }
 
 impl fmt::Display for LlmDiagnosticsError {
