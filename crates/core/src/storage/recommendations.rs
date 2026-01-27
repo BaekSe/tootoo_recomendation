@@ -7,7 +7,10 @@ pub async fn persist_success(
     provider: &str,
     raw_llm_response: Option<serde_json::Value>,
 ) -> anyhow::Result<uuid::Uuid> {
-    anyhow::ensure!(snapshot.items.len() == 20, "snapshot must have exactly 20 items");
+    anyhow::ensure!(
+        snapshot.items.len() == 20,
+        "snapshot must have exactly 20 items"
+    );
 
     let mut tx = pool.begin().await.context("begin transaction failed")?;
 

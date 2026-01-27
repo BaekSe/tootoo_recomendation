@@ -9,7 +9,10 @@ const KST_OFFSET_SECS: i32 = 9 * 3600;
 const CLOSE_CUTOFF_HOUR_KST: u32 = 16;
 const CLOSE_CUTOFF_MINUTE_KST: u32 = 0;
 
-pub fn resolve_as_of_date(as_of_date_arg: Option<&str>, now_utc: DateTime<Utc>) -> anyhow::Result<NaiveDate> {
+pub fn resolve_as_of_date(
+    as_of_date_arg: Option<&str>,
+    now_utc: DateTime<Utc>,
+) -> anyhow::Result<NaiveDate> {
     if let Some(s) = as_of_date_arg {
         return Ok(NaiveDate::parse_from_str(s, "%Y-%m-%d")?);
     }
@@ -17,7 +20,8 @@ pub fn resolve_as_of_date(as_of_date_arg: Option<&str>, now_utc: DateTime<Utc>) 
     let kst = chrono::FixedOffset::east_opt(KST_OFFSET_SECS).context("invalid KST offset")?;
     let now_kst = now_utc.with_timezone(&kst);
 
-    let cutoff_reached = (now_kst.hour(), now_kst.minute()) >= (CLOSE_CUTOFF_HOUR_KST, CLOSE_CUTOFF_MINUTE_KST);
+    let cutoff_reached =
+        (now_kst.hour(), now_kst.minute()) >= (CLOSE_CUTOFF_HOUR_KST, CLOSE_CUTOFF_MINUTE_KST);
     let mut date = now_kst.date_naive();
     if !cutoff_reached {
         date = date - Duration::days(1);

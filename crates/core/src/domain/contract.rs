@@ -60,9 +60,20 @@ impl LlmRecommendationSnapshot {
 }
 
 impl LlmRecommendationItem {
-    fn validate_and_into_item(self, seen_ranks: &mut BTreeSet<i32>) -> anyhow::Result<RecommendationItem> {
-        ensure!((1..=20).contains(&self.rank), "rank out of range: {}", self.rank);
-        ensure!(seen_ranks.insert(self.rank), "duplicate rank: {}", self.rank);
+    fn validate_and_into_item(
+        self,
+        seen_ranks: &mut BTreeSet<i32>,
+    ) -> anyhow::Result<RecommendationItem> {
+        ensure!(
+            (1..=20).contains(&self.rank),
+            "rank out of range: {}",
+            self.rank
+        );
+        ensure!(
+            seen_ranks.insert(self.rank),
+            "duplicate rank: {}",
+            self.rank
+        );
 
         let ticker = self.ticker.trim().to_string();
         ensure!(!ticker.is_empty(), "ticker must be non-empty");
@@ -78,7 +89,10 @@ impl LlmRecommendationItem {
         let r0 = self.rationale[0].trim().to_string();
         let r1 = self.rationale[1].trim().to_string();
         let r2 = self.rationale[2].trim().to_string();
-        ensure!(!r0.is_empty() && !r1.is_empty() && !r2.is_empty(), "rationale lines must be non-empty");
+        ensure!(
+            !r0.is_empty() && !r1.is_empty() && !r2.is_empty(),
+            "rationale lines must be non-empty"
+        );
 
         if let Some(confidence) = self.confidence {
             ensure!(

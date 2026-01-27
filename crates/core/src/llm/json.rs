@@ -25,7 +25,10 @@ pub fn extract_json(text: &str) -> Option<String> {
     Some(trimmed[start..=end].trim().to_string())
 }
 
-pub fn parse_snapshot(text: &str, expected_as_of_date: chrono::NaiveDate) -> anyhow::Result<RecommendationSnapshot> {
+pub fn parse_snapshot(
+    text: &str,
+    expected_as_of_date: chrono::NaiveDate,
+) -> anyhow::Result<RecommendationSnapshot> {
     let json_str = extract_json(text).unwrap_or_else(|| text.trim().to_string());
     let parsed = serde_json::from_str::<LlmRecommendationSnapshot>(&json_str)
         .with_context(|| format!("LLM output is not valid JSON for snapshot schema: {json_str}"))?;

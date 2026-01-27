@@ -1,8 +1,8 @@
 use crate::config::Settings;
 use crate::domain::recommendation::RecommendationSnapshot;
+use crate::llm::error::LlmDiagnosticsError;
 use crate::llm::json;
 use crate::llm::{GenerateInput, LlmClient, Provider};
-use crate::llm::error::LlmDiagnosticsError;
 use anyhow::{anyhow, Context};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,8 @@ pub struct AnthropicClient {
 impl AnthropicClient {
     pub fn from_settings(settings: &Settings) -> anyhow::Result<Self> {
         let api_key = settings.require_anthropic_api_key()?.to_string();
-        let base_url = std::env::var("ANTHROPIC_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
+        let base_url =
+            std::env::var("ANTHROPIC_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
         let model = std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
         let max_tokens = std::env::var("ANTHROPIC_MAX_TOKENS")
             .ok()
@@ -52,10 +53,16 @@ impl AnthropicClient {
         })
     }
 
-    async fn create_message(&self, req: CreateMessageRequest) -> anyhow::Result<(serde_json::Value, CreateMessageResponse)> {
+    async fn create_message(
+        &self,
+        req: CreateMessageRequest,
+    ) -> anyhow::Result<(serde_json::Value, CreateMessageResponse)> {
         let mut headers = HeaderMap::new();
         headers.insert("x-api-key", HeaderValue::from_str(&self.api_key)?);
-        headers.insert("anthropic-version", HeaderValue::from_static(ANTHROPIC_VERSION));
+        headers.insert(
+            "anthropic-version",
+            HeaderValue::from_static(ANTHROPIC_VERSION),
+        );
 
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let res = self
@@ -68,7 +75,10 @@ impl AnthropicClient {
             .context("Anthropic request failed")?;
 
         let status = res.status();
-        let text = res.text().await.context("failed to read Anthropic response body")?;
+        let text = res
+            .text()
+            .await
+            .context("failed to read Anthropic response body")?;
         if !status.is_success() {
             let raw_response_json = serde_json::from_str::<serde_json::Value>(&text).ok();
             return Err(LlmDiagnosticsError {
@@ -132,7 +142,10 @@ The JSON must have as_of_date={expected_as_of_date}.\n\nInvalid output:\n{previo
         )
     }
 
-    fn parse_snapshot(text: &str, expected_as_of_date: chrono::NaiveDate) -> anyhow::Result<RecommendationSnapshot> {
+    fn parse_snapshot(
+        text: &str,
+        expected_as_of_date: chrono::NaiveDate,
+    ) -> anyhow::Result<RecommendationSnapshot> {
         json::parse_snapshot(text, expected_as_of_date)
     }
 
@@ -147,7 +160,9 @@ The JSON must have as_of_date={expected_as_of_date}.\n\nInvalid output:\n{previo
                     out.push_str(text);
                 }
                 ContentBlock::ToolUse { .. } => {
-                    return Err(anyhow!("Anthropic returned tool_use content; tool execution is not supported"));
+                    return Err(anyhow!(
+                        "Anthropic returned tool_use content; tool execution is not supported"
+                    ));
                 }
                 ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. } => {
                     // Ignore.
@@ -167,7 +182,10 @@ impl LlmClient for AnthropicClient {
         Provider::Anthropic
     }
 
-    async fn generate_recommendations(&self, input: GenerateInput) -> anyhow::Result<RecommendationSnapshot> {
+    async fn generate_recommendations(
+        &self,
+        input: GenerateInput,
+    ) -> anyhow::Result<RecommendationSnapshot> {
         let (snapshot, _raw) = self.generate_recommendations_with_raw(input).await?;
         Ok(snapshot)
     }

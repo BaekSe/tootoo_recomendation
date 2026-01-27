@@ -1,5 +1,5 @@
 use anyhow::Context;
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 
 // Advisory locks are scoped to the Postgres session. This is used as a best-effort guard against
 // concurrent EOD runs for the same as-of date.
@@ -22,7 +22,10 @@ pub async fn try_acquire_as_of_date_lock(
     Ok(acquired.0)
 }
 
-pub async fn release_as_of_date_lock(pool: &sqlx::PgPool, as_of_date: NaiveDate) -> anyhow::Result<()> {
+pub async fn release_as_of_date_lock(
+    pool: &sqlx::PgPool,
+    as_of_date: NaiveDate,
+) -> anyhow::Result<()> {
     let key = lock_key_for_date(as_of_date);
     sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(key)

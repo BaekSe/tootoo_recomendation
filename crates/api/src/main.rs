@@ -9,8 +9,8 @@ use serde::Serialize;
 use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
-use uuid::Uuid;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use uuid::Uuid;
 
 use tootoo_core::domain::recommendation::{RecommendationItem, RecommendationSnapshot};
 
@@ -27,7 +27,11 @@ async fn main() -> anyhow::Result<()> {
         .with(sentry_tracing::layer())
         .init();
     let pool: Option<PgPool> = match settings.require_database_url() {
-        Ok(db_url) => match sqlx::PgPoolOptions::new().max_connections(5).connect(db_url).await {
+        Ok(db_url) => match sqlx::postgres::PgPoolOptions::new()
+            .max_connections(5)
+            .connect(db_url)
+            .await
+        {
             Ok(pool) => match tootoo_core::storage::migrate(&pool).await {
                 Ok(()) => Some(pool),
                 Err(e) => {
@@ -95,7 +99,9 @@ struct ApiSnapshot {
     snapshot: RecommendationSnapshot,
 }
 
-async fn get_latest_snapshot(State(state): State<AppState>) -> Result<Json<ApiSnapshot>, StatusCode> {
+async fn get_latest_snapshot(
+    State(state): State<AppState>,
+) -> Result<Json<ApiSnapshot>, StatusCode> {
     let Some(pool) = &state.pool else {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     };
@@ -123,7 +129,8 @@ async fn get_snapshot_by_date(
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     };
 
-    let as_of_date = NaiveDate::parse_from_str(&as_of_date, "%Y-%m-%d").map_err(|_| StatusCode::BAD_REQUEST)?;
+    let as_of_date =
+        NaiveDate::parse_from_str(&as_of_date, "%Y-%m-%d").map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let (snapshot_id, provider, snapshot) = fetch_snapshot(pool, Some(as_of_date))
         .await
@@ -148,7 +155,8 @@ async fn get_item_by_date_and_ticker(
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     };
 
-    let as_of_date = NaiveDate::parse_from_str(&as_of_date, "%Y-%m-%d").map_err(|_| StatusCode::BAD_REQUEST)?;
+    let as_of_date =
+        NaiveDate::parse_from_str(&as_of_date, "%Y-%m-%d").map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let (snapshot_id, _, _) = fetch_snapshot(pool, Some(as_of_date))
         .await
@@ -217,7 +225,17 @@ async fn fetch_snapshot(
 }
 
 async fn fetch_items(pool: &PgPool, snapshot_id: Uuid) -> anyhow::Result<Vec<RecommendationItem>> {
-    let rows = sqlx::query_as::<_, (i32, String, String, Vec<String>, Option<String>, Option<f64>)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            i32,
+            String,
+            String,
+            Vec<String>,
+            Option<String>,
+            Option<f64>,
+        ),
+    >(
         "SELECT rank, ticker, name, rationale, risk_notes, confidence \
          FROM recommendation_items \
          WHERE snapshot_id = $1 \
@@ -237,7 +255,11 @@ async fn fetch_items(pool: &PgPool, snapshot_id: Uuid) -> anyhow::Result<Vec<Rec
             rank,
             ticker,
             name,
-            rationale: [rationale[0].clone(), rationale[1].clone(), rationale[2].clone()],
+            rationale: [
+                rationale[0].clone(),
+                rationale[1].clone(),
+                rationale[2].clone(),
+            ],
             risk_notes,
             confidence,
         });
@@ -250,7 +272,17 @@ async fn fetch_item(
     snapshot_id: Uuid,
     ticker: &str,
 ) -> anyhow::Result<Option<RecommendationItem>> {
-    let row = sqlx::query_as::<_, (i32, String, String, Vec<String>, Option<String>, Option<f64>)>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            i32,
+            String,
+            String,
+            Vec<String>,
+            Option<String>,
+            Option<f64>,
+        ),
+    >(
         "SELECT rank, ticker, name, rationale, risk_notes, confidence \
          FROM recommendation_items \
          WHERE snapshot_id = $1 AND ticker = $2 \
@@ -273,7 +305,11 @@ async fn fetch_item(
         rank,
         ticker,
         name,
-        rationale: [rationale[0].clone(), rationale[1].clone(), rationale[2].clone()],
+        rationale: [
+            rationale[0].clone(),
+            rationale[1].clone(),
+            rationale[2].clone(),
+        ],
         risk_notes,
         confidence,
     }))
