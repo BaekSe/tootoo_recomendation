@@ -22,6 +22,7 @@ pub async fn upsert_daily_features_atomic(
              ON CONFLICT (as_of_date, ticker) DO UPDATE \
                SET name = EXCLUDED.name, trading_value = EXCLUDED.trading_value, features = EXCLUDED.features",
         )
+        .persistent(false)
         .bind(as_of_date)
         .bind(item.ticker.trim())
         .bind(item.name.trim())
@@ -53,6 +54,7 @@ pub async fn record_ingest_run(
         "INSERT INTO stock_features_ingest_runs (id, as_of_date, generated_at, provider, status, error, raw_response) \
          VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
+    .persistent(false)
     .bind(id)
     .bind(as_of_date)
     .bind(generated_at)

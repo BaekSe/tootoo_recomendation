@@ -19,6 +19,7 @@ pub async fn persist_success(
          VALUES ($1, $2, $3, 'success', NULL, $4) \
          RETURNING id",
     )
+    .persistent(false)
     .bind(snapshot.as_of_date)
     .bind(snapshot.generated_at)
     .bind(provider)
@@ -48,6 +49,7 @@ pub async fn persist_failure(
          VALUES ($1, $2, $3, 'error', $4, $5) \
          RETURNING id",
     )
+    .persistent(false)
     .bind(as_of_date)
     .bind(generated_at)
     .bind(provider)
@@ -71,6 +73,7 @@ async fn insert_item(
         "INSERT INTO recommendation_items (snapshot_id, rank, ticker, name, rationale, risk_notes, confidence) \
          VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
+    .persistent(false)
     .bind(snapshot_id)
     .bind(item.rank)
     .bind(&item.ticker)

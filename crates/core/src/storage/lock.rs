@@ -15,6 +15,7 @@ pub async fn try_acquire_as_of_date_lock(
 ) -> anyhow::Result<bool> {
     let key = lock_key_for_date(as_of_date);
     let acquired: (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock($1)")
+        .persistent(false)
         .bind(key)
         .fetch_one(pool)
         .await
@@ -28,6 +29,7 @@ pub async fn release_as_of_date_lock(
 ) -> anyhow::Result<()> {
     let key = lock_key_for_date(as_of_date);
     sqlx::query("SELECT pg_advisory_unlock($1)")
+        .persistent(false)
         .bind(key)
         .execute(pool)
         .await

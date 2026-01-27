@@ -35,6 +35,7 @@ pub async fn ingest_stub_stock_features(
              VALUES ($1, $2, $3, $4, $5) \
              ON CONFLICT (as_of_date, ticker) DO NOTHING",
         )
+        .persistent(false)
         .bind(as_of_date)
         .bind(ticker)
         .bind(name)
