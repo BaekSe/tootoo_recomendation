@@ -1,5 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
+use tootoo_core::ingest::provider::DataProviderClient;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -20,6 +21,10 @@ struct Args {
     /// Seed stock_features_daily with deterministic stub rows for the resolved as_of_date.
     #[arg(long)]
     ingest_features: bool,
+
+    /// Fetch stock_features_daily from an external data provider and upsert into DB.
+    #[arg(long)]
+    ingest_external: bool,
 
     /// Number of stub rows to insert when using --ingest-features.
     #[arg(long)]
@@ -70,6 +75,52 @@ async fn main() -> anyhow::Result<()> {
         let inserted = ingest::ingest_stub_stock_features(&pool, as_of_date, size).await?;
         tracing::info!(%as_of_date, size, inserted, "seeded stock_features_daily (stub)");
         return Ok(());
+    }
+
+    if args.ingest_external {
+        let provider =
+            tootoo_core::ingest::provider::HttpJsonDataProvider::from_settings(&settings)?;
+        let provider_name = provider.provider_name();
+
+        let fetched = provider.fetch_daily_features(as_of_date).await;
+        match fetched {
+            Ok((resp, raw_json)) => {
+                let affected = tootoo_core::storage::stock_features::upsert_daily_features_atomic(
+                    &pool,
+                    as_of_date,
+                    &resp.items,
+                )
+                .await?;
+
+                let run_id = tootoo_core::storage::stock_features::record_ingest_run(
+                    &pool,
+                    as_of_date,
+                    provider_name,
+                    "success",
+                    None,
+                    Some(raw_json),
+                )
+                .await?;
+
+                tracing::info!(%as_of_date, %run_id, affected, items = resp.items.len(), "external ingest complete");
+                return Ok(());
+            }
+            Err(err) => {
+                sentry_anyhow::capture_anyhow(&err);
+                let run_id = tootoo_core::storage::stock_features::record_ingest_run(
+                    &pool,
+                    as_of_date,
+                    provider_name,
+                    "error",
+                    Some(&format!("{:#}", err)),
+                    None,
+                )
+                .await?;
+
+                tracing::error!(%as_of_date, %run_id, error = %err, "external ingest failed");
+                return Err(err);
+            }
+        }
     }
 
     let acquired =

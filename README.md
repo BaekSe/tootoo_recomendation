@@ -102,6 +102,7 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
   - Worker (backfill): `cargo run -p tootoo_worker --release -- --as-of-date YYYY-MM-DD`
   - Worker (dry-run): `cargo run -p tootoo_worker -- --dry-run`
   - Worker (seed features stub): `cargo run -p tootoo_worker -- --ingest-features --ingest-size 500`
+  - Worker (ingest external): `cargo run -p tootoo_worker -- --ingest-external --as-of-date YYYY-MM-DD`
   - Check: `cargo check`
 - Environment (WIP)
   - `ANTHROPIC_API_KEY` (LLM)
@@ -116,6 +117,12 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
       - `UNIVERSE_SIZE` (default: `200`, must be 200..=500)
       - `UNIVERSE_MIN_TRADING_VALUE` (optional)
       - `TOOTOO_USE_STUB_UNIVERSE` (set to any value to bypass DB and use deterministic stub candidates)
+    - External data provider (ingest)
+      - `DATA_PROVIDER_BASE_URL` (required for `--ingest-external`)
+      - `DATA_PROVIDER_API_KEY` (optional; sent as `x-api-key`)
+      - `DATA_PROVIDER_FEATURES_PATH` (default: `/v1/stock_features_daily`)
+      - `DATA_PROVIDER_TIMEOUT_SECS` (default: `30`)
+      - `DATA_PROVIDER_RETRIES` (default: `3`)
     - Market date
       - `KR_MARKET_HOLIDAYS` (optional CSV list: `YYYY-MM-DD,YYYY-MM-DD`)
 

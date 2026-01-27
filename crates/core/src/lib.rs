@@ -1,4 +1,5 @@
 pub mod domain;
+pub mod ingest;
 pub mod llm;
 pub mod storage;
 pub mod time;
@@ -14,6 +15,8 @@ pub mod config {
         pub anthropic_api_key: Option<String>,
         pub openai_api_key: Option<String>,
         pub sentry_dsn: Option<String>,
+        pub data_provider_base_url: Option<String>,
+        pub data_provider_api_key: Option<String>,
     }
 
     impl Settings {
@@ -25,6 +28,8 @@ pub mod config {
                 anthropic_api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
                 openai_api_key: std::env::var("OPENAI_API_KEY").ok(),
                 sentry_dsn: std::env::var("SENTRY_DSN").ok(),
+                data_provider_base_url: std::env::var("DATA_PROVIDER_BASE_URL").ok(),
+                data_provider_api_key: std::env::var("DATA_PROVIDER_API_KEY").ok(),
             })
         }
 
@@ -38,6 +43,12 @@ pub mod config {
             self.anthropic_api_key
                 .as_deref()
                 .context("ANTHROPIC_API_KEY is required")
+        }
+
+        pub fn require_data_provider_base_url(&self) -> anyhow::Result<&str> {
+            self.data_provider_base_url
+                .as_deref()
+                .context("DATA_PROVIDER_BASE_URL is required")
         }
     }
 }
