@@ -104,3 +104,26 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
   - `ANTHROPIC_API_KEY` (LLM)
   - `DATABASE_URL` (Postgres connection string; Supabase)
   - `SENTRY_DSN` (optional)
+
+## TODOs / Next Steps
+
+If you resume work in another environment, this is the intended order.
+
+1. Implement provider-agnostic LLM interface in core + Anthropic provider (strict JSON schema, 1x repair, diagnostics)
+2. Implement worker EOD runner (as_of_date resolution, advisory lock/idempotency, transactional persist)
+3. Implement backend API (healthz, latest snapshot, snapshot by date, stock detail endpoints)
+4. Add GitHub Actions cron to run worker EOD job with secrets + retries
+5. Add basic observability (tracing + Sentry hooks; healthz deterministic)
+6. Add minimal frontend placeholder (optional) or document API contracts for Vercel UI
+
+## Git Notes
+
+This directory was initialized as a new git repository locally.
+
+- Local commits exist, but there is no remote configured yet.
+- To push from a new machine, add a remote and push:
+
+```bash
+git remote add origin <YOUR_GIT_REMOTE_URL>
+git push -u origin main
+```

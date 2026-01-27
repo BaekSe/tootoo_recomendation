@@ -109,6 +109,30 @@ If the model returns invalid JSON, agents should:
   - `crates/api` (`tootoo_api`): axum API server
   - `crates/worker` (`tootoo_worker`): one-shot EOD worker CLI
 
+## Working Agreements (WIP)
+
+- Runbook expectations
+  - `cargo check` must stay green
+  - EOD job must be idempotent (safe to retry) and must not partially write snapshots
+  - `GET /healthz` must be deterministic and must not call the LLM
+
+## Next Implementation Tasks
+
+1) LLM provider implementation (Anthropic)
+- Use Messages API (`POST https://api.anthropic.com/v1/messages`)
+- Required headers: `x-api-key`, `anthropic-version: 2023-06-01`, `content-type: application/json`
+- Enforce strict JSON output and do one repair pass if invalid
+
+2) Worker EOD orchestration
+- Resolve `as_of_date` (KR market date rule TBD)
+- Acquire lock / enforce uniqueness; persist snapshot + items transactionally
+
+3) API endpoints
+- Add snapshot read endpoints (latest/by-date) and item detail endpoints
+
+4) GitHub Actions scheduler
+- Cron triggers one-shot worker run; secrets from GitHub Actions
+
 ## How Agents Should Work Here
 
 - Prefer additive, reversible changes (migrations + new code) over destructive edits
