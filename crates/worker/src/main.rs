@@ -133,8 +133,14 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Advisory locks are session-scoped, so we must acquire and release on the same connection.
+    let mut lock_conn = pool
+        .acquire()
+        .await
+        .context("acquire connection for advisory lock failed")?;
     let acquired =
-        tootoo_core::storage::lock::try_acquire_as_of_date_lock(&pool, as_of_date).await?;
+        tootoo_core::storage::lock::try_acquire_as_of_date_lock_conn(&mut *lock_conn, as_of_date)
+            .await?;
     if !acquired {
         tracing::warn!(%as_of_date, "as_of_date lock not acquired; another run in progress");
         return Ok(());
@@ -142,7 +148,9 @@ async fn main() -> anyhow::Result<()> {
 
     if success_snapshot_exists(&pool, as_of_date).await? {
         tracing::info!(%as_of_date, "successful snapshot already exists; exiting (no-op)");
-        let _ = tootoo_core::storage::lock::release_as_of_date_lock(&pool, as_of_date).await;
+        let _ =
+            tootoo_core::storage::lock::release_as_of_date_lock_conn(&mut *lock_conn, as_of_date)
+                .await;
         return Ok(());
     }
 
@@ -222,7 +230,8 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let _ = tootoo_core::storage::lock::release_as_of_date_lock(&pool, as_of_date).await;
+    let _ =
+        tootoo_core::storage::lock::release_as_of_date_lock_conn(&mut *lock_conn, as_of_date).await;
     Ok(())
 }
 
