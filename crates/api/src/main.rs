@@ -6,7 +6,9 @@ use axum::{
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
+use sqlx::postgres::PgConnectOptions;
 use sqlx::PgPool;
+use std::str::FromStr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -27,26 +29,41 @@ async fn main() -> anyhow::Result<()> {
         .with(sentry_tracing::layer())
         .init();
     let pool: Option<PgPool> = match settings.require_database_url() {
-        Ok(db_url) => match sqlx::postgres::PgPoolOptions::new()
-            .max_connections(5)
-            .connect(db_url)
-            .await
-        {
-            Ok(pool) => match tootoo_core::storage::migrate(&pool).await {
-                Ok(()) => Some(pool),
+        Ok(db_url) => {
+            let connect_options = match PgConnectOptions::from_str(db_url) {
+                Ok(v) => v.statement_cache_capacity(0),
                 Err(e) => {
-                    sentry_anyhow::capture_anyhow(&e);
-                    tracing::error!(error = %e, "db migrations failed; starting API in degraded mode");
+                    let err = anyhow::Error::new(e).context("parse DATABASE_URL failed");
+                    sentry_anyhow::capture_anyhow(&err);
+                    tracing::error!(error = %err, "db connect failed; starting API in degraded mode");
+                    return Ok(());
+                }
+            };
+
+            match sqlx::postgres::PgPoolOptions::new()
+                .max_connections(5)
+                .connect_with(connect_options)
+                .await
+            {
+                Ok(pool) => match tootoo_core::storage::migrate(&pool).await {
+                    Ok(()) => Some(pool),
+                    Err(e) => {
+                        sentry_anyhow::capture_anyhow(&e);
+                        tracing::error!(
+                            error = %e,
+                            "db migrations failed; starting API in degraded mode"
+                        );
+                        None
+                    }
+                },
+                Err(e) => {
+                    let err = anyhow::Error::new(e);
+                    sentry_anyhow::capture_anyhow(&err);
+                    tracing::error!(error = %err, "db connect failed; starting API in degraded mode");
                     None
                 }
-            },
-            Err(e) => {
-                let err = anyhow::Error::new(e);
-                sentry_anyhow::capture_anyhow(&err);
-                tracing::error!(error = %err, "db connect failed; starting API in degraded mode");
-                None
             }
-        },
+        }
         Err(e) => {
             sentry_anyhow::capture_anyhow(&e);
             tracing::error!(error = %e, "DATABASE_URL missing; starting API in degraded mode");

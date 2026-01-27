@@ -1,5 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
+use sqlx::postgres::PgConnectOptions;
+use std::str::FromStr;
 use tootoo_core::ingest::provider::DataProviderClient;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -62,9 +64,13 @@ async fn main() -> anyhow::Result<()> {
 
     let db_url = settings.require_database_url()?;
 
+    let mut connect_options =
+        PgConnectOptions::from_str(db_url).context("parse DATABASE_URL failed")?;
+    connect_options = connect_options.statement_cache_capacity(0);
+
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
-        .connect(db_url)
+        .connect_with(connect_options)
         .await
         .context("connect DATABASE_URL failed")?;
 
