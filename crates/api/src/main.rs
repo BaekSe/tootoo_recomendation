@@ -26,14 +26,29 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .with(sentry_tracing::layer())
         .init();
-    let db_url = settings.require_database_url()?;
-
-    let pool = sqlx::PgPoolOptions::new()
-        .max_connections(5)
-        .connect(db_url)
-        .await?;
-
-    tootoo_core::storage::migrate(&pool).await?;
+    let pool: Option<PgPool> = match settings.require_database_url() {
+        Ok(db_url) => match sqlx::PgPoolOptions::new().max_connections(5).connect(db_url).await {
+            Ok(pool) => match tootoo_core::storage::migrate(&pool).await {
+                Ok(()) => Some(pool),
+                Err(e) => {
+                    sentry_anyhow::capture_anyhow(&e);
+                    tracing::error!(error = %e, "db migrations failed; starting API in degraded mode");
+                    None
+                }
+            },
+            Err(e) => {
+                let err = anyhow::Error::new(e);
+                sentry_anyhow::capture_anyhow(&err);
+                tracing::error!(error = %err, "db connect failed; starting API in degraded mode");
+                None
+            }
+        },
+        Err(e) => {
+            sentry_anyhow::capture_anyhow(&e);
+            tracing::error!(error = %e, "DATABASE_URL missing; starting API in degraded mode");
+            None
+        }
+    };
 
     let state = AppState { pool };
 
@@ -70,7 +85,7 @@ async fn healthz() -> &'static str {
 
 #[derive(Debug, Clone)]
 struct AppState {
-    pool: PgPool,
+    pool: Option<PgPool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -81,7 +96,11 @@ struct ApiSnapshot {
 }
 
 async fn get_latest_snapshot(State(state): State<AppState>) -> Result<Json<ApiSnapshot>, StatusCode> {
-    let (snapshot_id, provider, snapshot) = fetch_snapshot(&state.pool, None)
+    let Some(pool) = &state.pool else {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    };
+
+    let (snapshot_id, provider, snapshot) = fetch_snapshot(pool, None)
         .await
         .map_err(|e| {
             sentry_anyhow::capture_anyhow(&e);
@@ -100,9 +119,13 @@ async fn get_snapshot_by_date(
     State(state): State<AppState>,
     Path(as_of_date): Path<String>,
 ) -> Result<Json<ApiSnapshot>, StatusCode> {
+    let Some(pool) = &state.pool else {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    };
+
     let as_of_date = NaiveDate::parse_from_str(&as_of_date, "%Y-%m-%d").map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let (snapshot_id, provider, snapshot) = fetch_snapshot(&state.pool, Some(as_of_date))
+    let (snapshot_id, provider, snapshot) = fetch_snapshot(pool, Some(as_of_date))
         .await
         .map_err(|e| {
             sentry_anyhow::capture_anyhow(&e);
@@ -121,9 +144,13 @@ async fn get_item_by_date_and_ticker(
     State(state): State<AppState>,
     Path((as_of_date, ticker)): Path<(String, String)>,
 ) -> Result<Json<RecommendationItem>, StatusCode> {
+    let Some(pool) = &state.pool else {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    };
+
     let as_of_date = NaiveDate::parse_from_str(&as_of_date, "%Y-%m-%d").map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let (snapshot_id, _, _) = fetch_snapshot(&state.pool, Some(as_of_date))
+    let (snapshot_id, _, _) = fetch_snapshot(pool, Some(as_of_date))
         .await
         .map_err(|e| {
             sentry_anyhow::capture_anyhow(&e);
@@ -131,7 +158,7 @@ async fn get_item_by_date_and_ticker(
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let item = fetch_item(&state.pool, snapshot_id, &ticker)
+    let item = fetch_item(pool, snapshot_id, &ticker)
         .await
         .map_err(|e| {
             sentry_anyhow::capture_anyhow(&e);
