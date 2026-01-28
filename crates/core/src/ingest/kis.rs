@@ -195,7 +195,10 @@ impl KisClient {
 
         let fetched_at = chrono::Utc::now();
         let token = self.fetch_access_token().await?;
-        *guard = Some(CachedToken { token: token.clone(), fetched_at });
+        *guard = Some(CachedToken {
+            token: token.clone(),
+            fetched_at,
+        });
 
         if let Some(pool) = self.db_pool.as_ref() {
             // Best-effort: do not fail ingestion if token persistence fails.
