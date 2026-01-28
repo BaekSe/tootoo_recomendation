@@ -30,6 +30,10 @@ pub struct KisClient {
 
     // Cache token within a single process run to avoid repeated token issuance.
     token_cache: tokio::sync::Mutex<Option<CachedToken>>,
+
+    // Optional persistent token cache in DB (recommended for CI runners).
+    db_pool: Option<sqlx::PgPool>,
+    token_env_key: String,
 }
 
 #[derive(Debug, Clone)]
@@ -71,7 +75,14 @@ impl KisClient {
             req_delay: Duration::from_millis(req_delay_ms),
             markets,
             token_cache: tokio::sync::Mutex::new(None),
+            db_pool: None,
+            token_env_key: "prod".to_string(),
         })
+    }
+
+    pub fn with_db_pool(mut self, pool: sqlx::PgPool) -> Self {
+        self.db_pool = Some(pool);
+        self
     }
 
     pub async fn fetch_daily_features_krx(
@@ -168,9 +179,30 @@ impl KisClient {
             }
         }
 
+        // Try persistent cache (DB) before issuing a new token.
+        if let Some(pool) = self.db_pool.as_ref() {
+            if let Some(tok) = load_token_from_db(pool, &self.token_env_key).await? {
+                if !tok.is_expired_or_stale(chrono::Utc::now()) {
+                    let now = chrono::Utc::now();
+                    *guard = Some(CachedToken {
+                        token: tok.clone(),
+                        fetched_at: now,
+                    });
+                    return Ok(tok);
+                }
+            }
+        }
+
         let fetched_at = chrono::Utc::now();
         let token = self.fetch_access_token().await?;
         *guard = Some(CachedToken { token: token.clone(), fetched_at });
+
+        if let Some(pool) = self.db_pool.as_ref() {
+            // Best-effort: do not fail ingestion if token persistence fails.
+            if let Err(err) = save_token_to_db(pool, &self.token_env_key, &token).await {
+                tracing::warn!(error = %err, "failed to persist KIS access token to DB");
+            }
+        }
         Ok(token)
     }
 
@@ -419,6 +451,49 @@ impl KisToken {
         // Conservative default: treat unknown expiry as stale.
         true
     }
+}
+
+async fn load_token_from_db(pool: &sqlx::PgPool, env: &str) -> Result<Option<KisToken>> {
+    let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
+        "SELECT access_token, access_token_token_expired, expires_in \
+         FROM kis_access_tokens \
+         WHERE env = $1",
+    )
+    .persistent(false)
+    .bind(env)
+    .fetch_optional(pool)
+    .await;
+
+    let Some((access_token, token_expired, expires_in)) = row.ok().flatten() else {
+        return Ok(None);
+    };
+
+    Ok(Some(KisToken {
+        access_token,
+        access_token_token_expired: token_expired.unwrap_or_default(),
+        expires_in: expires_in.unwrap_or(0).max(0) as u64,
+    }))
+}
+
+async fn save_token_to_db(pool: &sqlx::PgPool, env: &str, tok: &KisToken) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO kis_access_tokens (env, access_token, access_token_token_expired, expires_in, issued_at, updated_at) \
+         VALUES ($1, $2, $3, $4, now(), now()) \
+         ON CONFLICT (env) DO UPDATE SET \
+           access_token = EXCLUDED.access_token, \
+           access_token_token_expired = EXCLUDED.access_token_token_expired, \
+           expires_in = EXCLUDED.expires_in, \
+           updated_at = now()",
+    )
+    .persistent(false)
+    .bind(env)
+    .bind(&tok.access_token)
+    .bind(&tok.access_token_token_expired)
+    .bind(tok.expires_in as i64)
+    .execute(pool)
+    .await
+    .context("upsert kis_access_tokens failed")?;
+    Ok(())
 }
 
 fn parse_kis_expiry_utc(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {

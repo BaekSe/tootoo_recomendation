@@ -138,7 +138,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if args.ingest_kis {
-        let kis = tootoo_core::ingest::kis::KisClient::from_settings_prod(&settings)?;
+        let kis = tootoo_core::ingest::kis::KisClient::from_settings_prod(&settings)?
+            .with_db_pool(pool.clone());
         let (resp, raw_json) = kis.fetch_daily_features_krx(as_of_date).await?;
 
         let affected = tootoo_core::storage::stock_features::upsert_daily_features_atomic(
