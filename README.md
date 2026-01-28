@@ -179,6 +179,18 @@ Notes
 
 - `ANTHROPIC_MAX_TOKENS` is set to `4096` in the workflow env to reduce truncation risk.
 
+## Deploy (Railway)
+
+Deploy the API server only (`tootoo_api`). The worker is intended to run via GitHub Actions.
+
+- Deploy method: Dockerfile at `Dockerfile`
+- Required env vars:
+  - `DATABASE_URL`
+  - `PORT` (Railway sets this automatically)
+- Optional env vars:
+  - `SENTRY_DSN`
+  - `RUST_LOG` (e.g. `info`)
+
 ## TODOs / Next Steps
 
 If you resume work in another environment, this is the intended order.
