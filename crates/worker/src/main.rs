@@ -142,6 +142,14 @@ async fn main() -> anyhow::Result<()> {
             .with_db_pool(pool.clone());
         let (resp, raw_json) = kis.fetch_daily_features_krx(as_of_date).await?;
 
+        let upsert_items = resp.items.len();
+        tracing::info!(
+            %as_of_date,
+            items = upsert_items,
+            "starting stock_features_daily upsert (kis)"
+        );
+        let t0 = std::time::Instant::now();
+
         let affected = tootoo_core::storage::stock_features::upsert_daily_features_atomic(
             &pool,
             as_of_date,
@@ -149,6 +157,15 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
 
+        tracing::info!(
+            %as_of_date,
+            affected,
+            items = upsert_items,
+            elapsed_ms = t0.elapsed().as_millis(),
+            "finished stock_features_daily upsert (kis)"
+        );
+
+        let t1 = std::time::Instant::now();
         let run_id = tootoo_core::storage::stock_features::record_ingest_run(
             &pool,
             as_of_date,
@@ -158,6 +175,13 @@ async fn main() -> anyhow::Result<()> {
             Some(raw_json),
         )
         .await?;
+
+        tracing::info!(
+            %as_of_date,
+            %run_id,
+            elapsed_ms = t1.elapsed().as_millis(),
+            "recorded ingest_run (kis)"
+        );
 
         tracing::info!(%as_of_date, %run_id, affected, items = resp.items.len(), "KIS ingest complete");
         return Ok(());
