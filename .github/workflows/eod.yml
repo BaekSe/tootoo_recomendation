@@ -9,7 +9,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     env:
       RUST_LOG: info
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -22,7 +22,8 @@ jobs:
       KIS_APPKEY: ${{ secrets.KIS_APPKEY }}
       KIS_APPSECRET: ${{ secrets.KIS_APPSECRET }}
       KIS_MARKETS: "KOSPI,KOSDAQ"
-      KIS_REQ_DELAY_MS: "150"
+      # Trade-off: slower but fewer network/rate-limit errors.
+      KIS_REQ_DELAY_MS: "300"
 
     steps:
       - name: Checkout
