@@ -257,12 +257,16 @@ INVALID OUTPUT (for reference only; DO NOT copy verbatim):\n{previous_output}"
         Ok(out)
     }
 
-    fn response_tool_snapshot(res: &CreateMessageResponse) -> anyhow::Result<Option<LlmRecommendationSnapshot>> {
+    fn response_tool_snapshot(
+        res: &CreateMessageResponse,
+    ) -> anyhow::Result<Option<LlmRecommendationSnapshot>> {
         for block in &res.content {
             if let ContentBlock::ToolUse { name, input, .. } = block {
                 if name == TOOL_NAME_EMIT_SNAPSHOT {
                     let parsed = serde_json::from_value::<LlmRecommendationSnapshot>(input.clone())
-                        .context("failed to decode tool_use.input into LlmRecommendationSnapshot")?;
+                        .context(
+                            "failed to decode tool_use.input into LlmRecommendationSnapshot",
+                        )?;
                     return Ok(Some(parsed));
                 }
             }
@@ -468,7 +472,9 @@ mod tests {
             stop_reason: None,
         };
 
-        let parsed = AnthropicClient::response_tool_snapshot(&res).unwrap().unwrap();
+        let parsed = AnthropicClient::response_tool_snapshot(&res)
+            .unwrap()
+            .unwrap();
         let snapshot = parsed.validate_and_into_snapshot(as_of).unwrap();
         assert_eq!(snapshot.as_of_date, as_of);
         assert_eq!(snapshot.items.len(), 20);

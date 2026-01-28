@@ -3,8 +3,8 @@ use crate::ingest::types::{DailyFeatureItem, DailyFeaturesResponse};
 use anyhow::{Context, Result};
 use chrono::{Datelike, NaiveDate, Utc};
 use encoding_rs::EUC_KR;
-use reqwest::StatusCode;
 use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -291,7 +291,8 @@ impl KisClient {
                 Ok(body) => break body,
                 Err(err) => {
                     if attempt >= max_attempts {
-                        return Err(err).context("failed to parse KIS daily itemchartprice response");
+                        return Err(err)
+                            .context("failed to parse KIS daily itemchartprice response");
                     }
                     let backoff = Duration::from_secs(1 << (attempt - 1));
                     tracing::warn!(
