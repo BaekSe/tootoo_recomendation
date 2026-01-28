@@ -1,7 +1,7 @@
 use crate::config::Settings;
 use crate::ingest::types::{DailyFeatureItem, DailyFeaturesResponse};
 use anyhow::{Context, Result};
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{Datelike, NaiveDate, TimeZone, Utc};
 use encoding_rs::EUC_KR;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::StatusCode;
@@ -19,7 +19,7 @@ const KOSDAQ_MASTER_ZIP: &str =
 const KONEX_MASTER_ZIP: &str =
     "https://new.real.download.dws.co.kr/common/master/konex_code.mst.zip";
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct KisClient {
     http: reqwest::Client,
     base_url: String,
@@ -27,6 +27,15 @@ pub struct KisClient {
     appsecret: String,
     req_delay: Duration,
     markets: Vec<KisMarket>,
+
+    // Cache token within a single process run to avoid repeated token issuance.
+    token_cache: tokio::sync::Mutex<Option<CachedToken>>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedToken {
+    token: KisToken,
+    fetched_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +70,7 @@ impl KisClient {
             appsecret,
             req_delay: Duration::from_millis(req_delay_ms),
             markets,
+            token_cache: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -68,7 +78,7 @@ impl KisClient {
         &self,
         as_of_date: NaiveDate,
     ) -> Result<(DailyFeaturesResponse, Value)> {
-        let token = self.fetch_access_token().await?;
+        let token = self.get_access_token_cached().await?;
 
         let mut items = Vec::new();
         let mut failures: usize = 0;
@@ -148,6 +158,20 @@ impl KisClient {
         });
 
         Ok((DailyFeaturesResponse { as_of_date, items }, raw))
+    }
+
+    async fn get_access_token_cached(&self) -> Result<KisToken> {
+        let mut guard = self.token_cache.lock().await;
+        if let Some(cached) = guard.as_ref() {
+            if !cached.token.is_expired_or_stale(cached.fetched_at) {
+                return Ok(cached.token.clone());
+            }
+        }
+
+        let fetched_at = chrono::Utc::now();
+        let token = self.fetch_access_token().await?;
+        *guard = Some(CachedToken { token: token.clone(), fetched_at });
+        Ok(token)
     }
 
     async fn fetch_access_token(&self) -> Result<KisToken> {
@@ -373,6 +397,64 @@ pub struct KisToken {
     pub access_token: String,
     #[serde(default)]
     pub access_token_token_expired: String,
+
+    #[serde(default)]
+    pub expires_in: u64,
+}
+
+impl KisToken {
+    fn is_expired_or_stale(&self, fetched_at: chrono::DateTime<chrono::Utc>) -> bool {
+        // Prefer the server-provided absolute expiry when available.
+        if let Some(exp) = parse_kis_expiry_utc(&self.access_token_token_expired) {
+            // Refresh a bit early to avoid edge races.
+            return chrono::Utc::now() + chrono::Duration::minutes(2) >= exp;
+        }
+
+        // Fallback to relative expires_in.
+        if self.expires_in > 0 {
+            let exp = fetched_at + chrono::Duration::seconds(self.expires_in as i64);
+            return chrono::Utc::now() + chrono::Duration::minutes(2) >= exp;
+        }
+
+        // Conservative default: treat unknown expiry as stale.
+        true
+    }
+}
+
+fn parse_kis_expiry_utc(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let t = s.trim();
+    if t.is_empty() {
+        return None;
+    }
+
+    // Observed format: "YYYY-MM-DD HH:MM:SS" (KST). Convert to UTC.
+    let naive = chrono::NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S").ok()?;
+    // KST is UTC+9.
+    let kst = chrono::FixedOffset::east_opt(9 * 3600)?;
+    let dt = kst.from_local_datetime(&naive).single()?;
+    Some(dt.with_timezone(&chrono::Utc))
+}
+
+#[cfg(test)]
+mod token_tests {
+    use super::*;
+
+    #[test]
+    fn parses_token_expiry_fields() {
+        let s = r#"{
+            "access_token": "secret",
+            "token_type": "Bearer",
+            "expires_in": 86400,
+            "access_token_token_expired": "2026-01-30 05:00:44"
+        }"#;
+
+        let tok: KisToken = serde_json::from_str(s).unwrap();
+        assert_eq!(tok.expires_in, 86400);
+        assert_eq!(tok.access_token, "secret");
+        assert_eq!(tok.access_token_token_expired, "2026-01-30 05:00:44");
+        let dt = parse_kis_expiry_utc(&tok.access_token_token_expired).unwrap();
+        assert_eq!(dt.to_rfc3339(), "2026-01-29T20:00:44+00:00");
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
