@@ -107,4 +107,31 @@ mod tests {
         .to_string();
         assert!(parse_snapshot(&json, as_of).is_err());
     }
+
+    #[test]
+    fn parse_snapshot_accepts_missing_optional_keys() {
+        let as_of = NaiveDate::from_ymd_opt(2026, 1, 27).unwrap();
+        let generated_at = Utc.with_ymd_and_hms(2026, 1, 27, 10, 0, 0).unwrap();
+        let items: Vec<_> = (1..=20)
+            .map(|rank| {
+                // risk_notes and confidence are optional.
+                json!({
+                    "rank": rank,
+                    "ticker": format!("KRX:{rank:06}"),
+                    "name": format!("Name {rank}"),
+                    "rationale": ["a", "b", "c"],
+                })
+            })
+            .collect();
+
+        let json = json!({
+            "as_of_date": as_of,
+            "generated_at": generated_at,
+            "items": items,
+        })
+        .to_string();
+
+        let snapshot = parse_snapshot(&json, as_of).unwrap();
+        assert_eq!(snapshot.items.len(), 20);
+    }
 }

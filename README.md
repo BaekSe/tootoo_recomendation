@@ -103,6 +103,7 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
   - Worker (dry-run): `cargo run -p tootoo_worker -- --dry-run`
   - Worker (seed features stub): `cargo run -p tootoo_worker -- --ingest-features --ingest-size 500`
   - Worker (ingest external): `cargo run -p tootoo_worker -- --ingest-external --as-of-date YYYY-MM-DD`
+  - Worker (ingest KIS): `cargo run -p tootoo_worker -- --ingest-kis --as-of-date YYYY-MM-DD`
   - Check: `cargo check`
 - Environment (WIP)
   - `ANTHROPIC_API_KEY` (LLM)
@@ -117,6 +118,7 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
     - Worker / Universe
       - `UNIVERSE_SIZE` (default: `200`, must be 200..=500)
       - `UNIVERSE_MIN_TRADING_VALUE` (optional)
+      - `UNIVERSE_OVERSAMPLE` (default: `5`; fetch size*oversample by trading value, then rescore/select top size)
       - `TOOTOO_USE_STUB_UNIVERSE` (set to any value to bypass DB and use deterministic stub candidates)
     - External data provider (ingest)
       - `DATA_PROVIDER_BASE_URL` (required for `--ingest-external`)
@@ -124,6 +126,14 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
       - `DATA_PROVIDER_FEATURES_PATH` (default: `/v1/stock_features_daily`)
       - `DATA_PROVIDER_TIMEOUT_SECS` (default: `30`)
       - `DATA_PROVIDER_RETRIES` (default: `3`)
+    - KIS OpenAPI (Korea Investment; ingest)
+      - `KIS_BASE_URL` (default: `https://openapi.koreainvestment.com:9443`)
+      - `KIS_APPKEY` (required for `--ingest-kis`)
+      - `KIS_APPSECRET` (required for `--ingest-kis`)
+      - `KIS_MARKETS` (default: `KOSPI,KOSDAQ`)
+      - `KIS_REQ_DELAY_MS` (default: `150`)
+      - `KIS_MAX_TICKERS` (optional; cap number of tickers ingested, useful for local/dev)
+      - `KIS_PROGRESS_EVERY` (default: `200`; set `0` to disable progress logs)
     - Market date
       - `KR_MARKET_HOLIDAYS` (optional CSV list: `YYYY-MM-DD,YYYY-MM-DD`)
 
@@ -146,6 +156,28 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
 - Backfill
   - `cargo run -p tootoo_worker --release -- --as-of-date YYYY-MM-DD`
   - If a successful snapshot already exists for that date, the worker exits (no-op) and does not call the LLM.
+
+## GitHub Actions (EOD)
+
+This repo includes an EOD workflow at `.github/workflows/eod.yml`.
+
+- Schedule: weekdays 07:45 UTC (KRX close + buffer)
+- Behavior: runs KIS ingest first, then runs the recommendation job
+
+Required GitHub Secrets
+
+- `DATABASE_URL`
+- `ANTHROPIC_API_KEY`
+- `KIS_APPKEY`
+- `KIS_APPSECRET`
+
+Optional GitHub Secrets
+
+- `SENTRY_DSN`
+
+Notes
+
+- `ANTHROPIC_MAX_TOKENS` is set to `4096` in the workflow env to reduce truncation risk.
 
 ## TODOs / Next Steps
 

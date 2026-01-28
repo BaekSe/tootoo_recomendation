@@ -28,6 +28,10 @@ struct Args {
     #[arg(long)]
     ingest_external: bool,
 
+    /// Fetch stock_features_daily from KIS (Korea Investment) OpenAPI and upsert into DB.
+    #[arg(long)]
+    ingest_kis: bool,
+
     /// Number of stub rows to insert when using --ingest-features.
     #[arg(long)]
     ingest_size: Option<usize>,
@@ -131,6 +135,31 @@ async fn main() -> anyhow::Result<()> {
                 return Err(err);
             }
         }
+    }
+
+    if args.ingest_kis {
+        let kis = tootoo_core::ingest::kis::KisClient::from_settings_prod(&settings)?;
+        let (resp, raw_json) = kis.fetch_daily_features_krx(as_of_date).await?;
+
+        let affected = tootoo_core::storage::stock_features::upsert_daily_features_atomic(
+            &pool,
+            as_of_date,
+            &resp.items,
+        )
+        .await?;
+
+        let run_id = tootoo_core::storage::stock_features::record_ingest_run(
+            &pool,
+            as_of_date,
+            "kis",
+            "success",
+            None,
+            Some(raw_json),
+        )
+        .await?;
+
+        tracing::info!(%as_of_date, %run_id, affected, items = resp.items.len(), "KIS ingest complete");
+        return Ok(());
     }
 
     // Advisory locks are session-scoped, so we must acquire and release on the same connection.
