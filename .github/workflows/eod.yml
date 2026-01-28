@@ -29,6 +29,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Install system deps
         run: |
@@ -37,6 +39,9 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: eod
+          cache-on-failure: true
 
       - name: Run KIS ingest (KOSPI, retry)
         run: |
@@ -70,6 +75,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Install system deps
         run: |
@@ -78,6 +85,9 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: eod
+          cache-on-failure: true
 
       - name: Run KIS ingest (KOSDAQ, retry)
         run: |
@@ -107,6 +117,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Install system deps
         run: |
@@ -115,6 +127,9 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: eod
+          cache-on-failure: true
 
       - name: Run EOD worker (recommend, retry)
         run: |
