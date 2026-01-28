@@ -7,21 +7,19 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  run:
+  ingest_kospi:
+    name: ingest-kospi
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
       RUST_LOG: info
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      ANTHROPIC_MAX_TOKENS: "4096"
-      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
       # KIS OpenAPI (for daily feature ingest)
       KIS_BASE_URL: "https://openapi.koreainvestment.com:9443"
       KIS_APPKEY: ${{ secrets.KIS_APPKEY }}
       KIS_APPSECRET: ${{ secrets.KIS_APPSECRET }}
-      KIS_MARKETS: "KOSPI,KOSDAQ"
+      KIS_MARKETS: "KOSPI"
       # Trade-off: slower but fewer network/rate-limit errors.
       KIS_REQ_DELAY_MS: "300"
 
@@ -40,16 +38,91 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Run EOD worker (ingest + recommend, retry)
+      - name: Run KIS ingest (KOSPI, retry)
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            echo "attempt=$i"
+            cargo run -p tootoo_worker --release -- --ingest-kis && exit 0
+            sleep 30
+          done
+          exit 1
+
+  ingest_kosdaq:
+    name: ingest-kosdaq
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RUST_LOG: info
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      # KIS OpenAPI (for daily feature ingest)
+      KIS_BASE_URL: "https://openapi.koreainvestment.com:9443"
+      KIS_APPKEY: ${{ secrets.KIS_APPKEY }}
+      KIS_APPSECRET: ${{ secrets.KIS_APPSECRET }}
+      KIS_MARKETS: "KOSDAQ"
+      # Trade-off: slower but fewer network/rate-limit errors.
+      KIS_REQ_DELAY_MS: "300"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run KIS ingest (KOSDAQ, retry)
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            echo "attempt=$i"
+            cargo run -p tootoo_worker --release -- --ingest-kis && exit 0
+            sleep 30
+          done
+          exit 1
+
+  recommend:
+    name: recommend
+    needs: [ingest_kospi, ingest_kosdaq]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RUST_LOG: info
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_MAX_TOKENS: "4096"
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run EOD worker (recommend, retry)
         run: |
           set -euo pipefail
           for i in 1 2 3; do
             echo "attempt=$i"
 
-            # Resolve as_of_date on the worker side.
-            cargo run -p tootoo_worker --release -- --ingest-kis && \
-            cargo run -p tootoo_worker --release && \
-            exit 0
+            cargo run -p tootoo_worker --release && exit 0
 
             sleep 30
           done

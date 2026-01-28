@@ -162,7 +162,7 @@ Rust workspace scaffold exists with a minimal API and worker entrypoint.
 This repo includes an EOD workflow at `.github/workflows/eod.yml`.
 
 - Schedule: weekdays 07:45 UTC (KRX close + buffer)
-- Behavior: runs KIS ingest first, then runs the recommendation job
+- Behavior: runs KIS ingest split by market (KOSPI, then KOSDAQ), then runs the recommendation job
 
 Required GitHub Secrets
 
