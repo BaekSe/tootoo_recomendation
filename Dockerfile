@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM rust:1.85-slim-bookworm AS builder
+FROM rust:1.93-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -23,12 +23,20 @@ RUN mkdir -p crates/core/src crates/api/src crates/worker/src \
   && printf 'pub fn _dummy() {}\n' > crates/core/src/lib.rs \
   && printf 'fn main() {}\n' > crates/worker/src/main.rs
 
-RUN cargo build -p tootoo_api --release
+RUN cargo build -p tootoo_api --release --locked
 
 # Real sources
 COPY crates ./crates
 
-RUN cargo build -p tootoo_api --release
+# The dependency-cache trick builds a dummy binary first.
+# Docker COPY preserves source mtimes from the host, which can be older than the
+# dummy build outputs and may cause Cargo to incorrectly treat the real sources
+# as up-to-date. Drop the relevant Cargo fingerprints/outputs to force rebuild.
+RUN rm -f target/release/tootoo_api \
+  && rm -rf target/release/.fingerprint/tootoo_api* target/release/.fingerprint/tootoo_core* \
+  && rm -f target/release/deps/tootoo_api* target/release/deps/libtootoo_core*
+
+RUN cargo build -p tootoo_api --release --locked
 
 
 FROM debian:bookworm-slim AS runtime
